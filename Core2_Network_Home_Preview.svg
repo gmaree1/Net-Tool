@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1060" height="880" viewBox="0 0 1060 880">
+<rect width="100%" height="100%" fill="#101625"/>
+<style>text{font-family:Arial,Helvetica,sans-serif}.title{font-size:30px;font-weight:700;fill:#f5f8ff}.hint{font-size:20px;fill:#8ca0c3}.status{font-size:27px;font-weight:700;fill:#000}.label{font-size:21px;fill:#8ca0c3}.ip{font-size:48px;font-weight:700;fill:#22d3ee}.mask{font-size:24px;fill:#f5f8ff}.vlanlabel{font-size:21px;fill:#000}.vlannum{font-size:58px;font-weight:700;fill:#000}.cardlabel{font-size:18px;font-weight:700}.cardvalue{font-size:29px;font-weight:700;fill:#f5f8ff}.switchlabel{font-size:22px;font-weight:700;fill:#a855f7}.switchvalue{font-size:23px;fill:#f5f8ff}.tab{font-size:24px;font-weight:700}</style>
+<text x="50" y="45" class="title">NETWORK HOME SCREEN</text>
+<text x="50" y="76" class="hint">Reworked for quick status checks at a glance</text>
+<rect x="38" y="108" width="984" height="744" rx="38" fill="#202b40" stroke="#50617a" stroke-width="4"/>
+<rect x="50" y="120" width="960" height="720" rx="10" fill="#080e1c"/>
+<path d="M74 120 H986 Q1010 120 1010 144 V204 H50 V144 Q50 120 74 120Z" fill="#22c55e"/>
+<circle cx="92" cy="166" r="18" fill="#000"/><circle cx="92" cy="166" r="12" fill="#f5f8ff"/>
+<text x="134" y="177" class="status">LINK 100M FULL</text>
+<text x="990" y="177" class="status" text-anchor="end">84%</text>
+<rect x="62" y="210" width="630" height="168" rx="24" fill="#18243e"/>
+<text x="86" y="251" class="label">IP ADDRESS</text>
+<text x="86" y="306" class="ip">192.168.10.42</text>
+<text x="86" y="352" class="mask">/24  255.255.255.0</text>
+<rect x="710" y="210" width="288" height="168" rx="24" fill="#22c55e"/>
+<text x="854" y="252" class="vlanlabel" text-anchor="middle">VLAN</text>
+<text x="854" y="331" class="vlannum" text-anchor="middle">20</text>
+<rect x="62" y="393" width="456" height="102" rx="18" fill="#18243e"/>
+<rect x="62" y="408" width="9" height="72" rx="4" fill="#22c55e"/>
+<text x="89" y="427" class="cardlabel" fill="#22c55e">GATEWAY</text>
+<text x="89" y="471" class="cardvalue">192.168.10.1</text>
+<rect x="542" y="393" width="456" height="102" rx="18" fill="#18243e"/>
+<rect x="542" y="408" width="9" height="72" rx="4" fill="#3b82f6"/>
+<text x="569" y="427" class="cardlabel" fill="#3b82f6">DNS</text>
+<text x="569" y="471" class="cardvalue">192.168.10.10  8.8.8.8</text>
+<rect x="62" y="510" width="630" height="102" rx="18" fill="#18243e"/>
+<rect x="62" y="525" width="9" height="72" rx="4" fill="#f97316"/>
+<text x="89" y="544" class="cardlabel" fill="#f97316">DHCP SERVER / RELAY</text>
+<text x="89" y="588" class="cardvalue">192.168.10.5  relay 192.168.10.1</text>
+<rect x="716" y="510" width="282" height="102" rx="18" fill="#18243e"/>
+<rect x="716" y="525" width="9" height="72" rx="4" fill="#ec4899"/>
+<text x="743" y="544" class="cardlabel" fill="#ec4899">LEASE</text>
+<text x="743" y="588" class="cardvalue">1d 6h</text>
+<rect x="62" y="627" width="936" height="69" rx="18" fill="#18243e"/>
+<text x="80" y="671" class="switchlabel">SWITCH</text>
+<text x="245" y="671" class="switchvalue">SW-CORE-01  Gi1/0/12</text>
+<rect x="59" y="714" width="306" height="120" rx="24" fill="#22d3ee" stroke="#22d3ee" stroke-width="6"/>
+<text x="212.0" y="790" class="tab" fill="#000" text-anchor="middle">NETWORK</text>
+<rect x="377" y="714" width="306" height="120" rx="24" fill="#18243e" stroke="#facc15" stroke-width="6"/>
+<text x="530.0" y="790" class="tab" fill="#facc15" text-anchor="middle">SWITCH</text>
+<rect x="695" y="714" width="306" height="120" rx="24" fill="#18243e" stroke="#f97316" stroke-width="6"/>
+<text x="848.0" y="790" class="tab" fill="#f97316" text-anchor="middle">TOOLS</text>
+</svg>

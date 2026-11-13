@@ -1,0 +1,18 @@
+# PlatformIO build products
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Local editor and OS files
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Local configuration and diagnostic captures
+.env
+.env.*
+!.env.example
+*.log
+*.pcap
+*.pcapng
