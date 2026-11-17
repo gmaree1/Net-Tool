@@ -1,5 +1,5 @@
-// M5Stack Core2 Net Tool - plug into a switch port, read VLAN / CDP / LLDP / DHCP,
-// run quick tests from big touch buttons.
+// Core2 application: touch navigation, Ethernet status, switch discovery,
+// diagnostic results, QR handoff, and passive Wi-Fi survey pages.
 #include <M5Unified.h>
 #include "net.h"
 #include "tools.h"
@@ -745,6 +745,9 @@ void setup() {
   if (!lanOk) {
     splash("W5500 LAN module not detected");
     delay(1500);
+  } else {
+    splash(netModuleName());
+    delay(800);
   }
 
   canvas.setPsram(true);

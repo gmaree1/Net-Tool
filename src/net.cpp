@@ -1,6 +1,6 @@
-// Ethernet bring-up using the ESP-IDF W5500 driver. The driver runs the chip in
-// raw-MAC mode, so every frame passes through ethInput() below before it reaches
-// lwIP. That is where CDP, LLDP, DHCP replies and 802.1Q tags are picked off.
+// W5500 module detection and Ethernet initialization using the ESP-IDF driver.
+// Raw-MAC receive processing extracts CDP, LLDP, DHCP, and 802.1Q information
+// before forwarding traffic to lwIP; display access shares the SPI bus.
 #include "net.h"
 #include "esp_eth.h"
 #include "esp_event.h"
@@ -28,6 +28,26 @@ static DhcpOffer sOffers[MAX_OFFERS];
 static int       sOfferCount = 0;
 static volatile bool sHold = false;
 static spi_device_handle_t sBusGuard = nullptr;
+
+struct LanProfile {
+  const char *name;
+  int cs, reset, interrupt;
+};
+
+#ifdef ETH_AUTO_DETECT
+#ifndef NO_SOUND
+#error "Ethernet auto-detection requires NO_SOUND: GPIO0 is a reset candidate"
+#endif
+static const LanProfile sProfiles[] = {
+  {"LAN Module 13.2", 33, 0, 35},
+  {"LAN / PoE Base", 26, 19, 34},
+};
+#else
+static const LanProfile sProfiles[] = {
+  {"Fixed LAN profile", ETH_PIN_CS, ETH_PIN_RST, ETH_PIN_INT},
+};
+#endif
+static const LanProfile *sProfile = nullptr;
 
 #define LOCK()   xSemaphoreTake(sLock, portMAX_DELAY)
 #define UNLOCK() xSemaphoreGive(sLock)
@@ -382,6 +402,49 @@ static void onIpEvent(void *, esp_event_base_t, int32_t id, void *data) {
 }
 
 // ---------------------------------------------------------------- bring-up
+// Detect the chip itself, not Ethernet link or DHCP: this also works with no
+// cable connected. VERSIONR is read-only and must repeatedly return 0x04.
+// Probe devices are removed before the real MAC driver takes over the bus.
+static bool probeLan(const LanProfile &profile) {
+  digitalWrite(profile.reset, HIGH);
+  pinMode(profile.reset, OUTPUT);
+  digitalWrite(profile.reset, LOW);
+  delay(2);                              // W5500 requires at least 500 us
+  digitalWrite(profile.reset, HIGH);
+  delay(100);                            // allow oscillator / reset recovery
+
+  spi_device_interface_config_t dev = {};
+  dev.command_bits = 16;                  // W5500 register address
+  dev.address_bits = 8;                   // control byte: block 0, read, VDM
+  dev.clock_speed_hz = 1000 * 1000;       // conservative speed for detection
+  dev.spics_io_num = profile.cs;
+  dev.queue_size = 1;
+  spi_device_handle_t spi = nullptr;
+  esp_err_t err = spi_bus_add_device(ETH_SPI_HOST, &dev, &spi);
+  if (err != ESP_OK) {
+    Serial.printf("LAN probe %s failed: %s\n", profile.name, esp_err_to_name(err));
+    return false;
+  }
+
+  bool found = true;
+  for (int i = 0; i < 3; ++i) {
+    spi_transaction_t tx = {};
+    tx.cmd = 0x0039;                      // common-register VERSIONR
+    tx.addr = 0;
+    tx.length = 8;
+    tx.flags = SPI_TRANS_USE_RXDATA;
+    err = spi_device_transmit(spi, &tx);
+    if (err != ESP_OK || tx.rx_data[0] != 0x04) {
+      found = false;
+      break;
+    }
+  }
+  spi_bus_remove_device(spi);
+  digitalWrite(profile.cs, HIGH);
+  Serial.printf("LAN probe %s: %s\n", profile.name, found ? "W5500 found" : "not found");
+  return found;
+}
+
 bool netBegin() {
   sLock = xSemaphoreCreateMutex();
   memset(&sState, 0, sizeof sState);
@@ -393,8 +456,11 @@ bool netBegin() {
   esp_event_loop_create_default();        // "already created" is fine
   gpio_install_isr_service(0);            // "already installed" is fine
 
-  Serial.printf("LAN W5500 pins: SCK=%d MISO=%d MOSI=%d CS=%d RST=%d INT=%d\n",
-                ETH_PIN_SCK, ETH_PIN_MISO, ETH_PIN_MOSI, ETH_PIN_CS, ETH_PIN_RST, ETH_PIN_INT);
+  // Keep every supported Ethernet CS inactive before touching the shared bus.
+  for (const auto &profile : sProfiles) {
+    digitalWrite(profile.cs, HIGH);
+    pinMode(profile.cs, OUTPUT);
+  }
   // An unused SD card must not answer transfers on the shared SPI bus.
   pinMode(4, OUTPUT);
   digitalWrite(4, HIGH);
@@ -413,10 +479,24 @@ bool netBegin() {
   }
   if (busErr == ESP_ERR_INVALID_STATE) Serial.println("LAN sharing display SPI bus (expected)");
 
+  for (const auto &profile : sProfiles) {
+    if (probeLan(profile)) {
+      sProfile = &profile;
+      break;
+    }
+  }
+  if (!sProfile) {
+    Serial.println("LAN: no W5500 found on supported pin mappings");
+    return false;
+  }
+  Serial.printf("LAN selected %s: SCK=%d MISO=%d MOSI=%d CS=%d RST=%d INT=%d\n",
+                sProfile->name, ETH_PIN_SCK, ETH_PIN_MISO, ETH_PIN_MOSI,
+                sProfile->cs, sProfile->reset, sProfile->interrupt);
+
   spi_device_interface_config_t dev = {};
   dev.mode = 0;
   dev.clock_speed_hz = 20 * 1000 * 1000;
-  dev.spics_io_num = ETH_PIN_CS;
+  dev.spics_io_num = sProfile->cs;
   dev.queue_size = 20;
 #if ESP_IDF_VERSION_MAJOR >= 5
   eth_w5500_config_t w5500 = ETH_W5500_DEFAULT_CONFIG(ETH_SPI_HOST, &dev);
@@ -427,7 +507,7 @@ bool netBegin() {
   if (spi_bus_add_device(ETH_SPI_HOST, &dev, &spi) != ESP_OK) return false;
   eth_w5500_config_t w5500 = ETH_W5500_DEFAULT_CONFIG(spi);
 #endif
-  w5500.int_gpio_num = ETH_PIN_INT;
+  w5500.int_gpio_num = sProfile->interrupt;
 
   // Guard device used by netBusLock(): lets the display (which pokes the SPI
   // registers directly) take the bus away from the Ethernet driver while drawing.
@@ -444,7 +524,7 @@ bool netBegin() {
   eth_mac_config_t macCfg = ETH_MAC_DEFAULT_CONFIG();
   macCfg.rx_task_stack_size = 4096;
   eth_phy_config_t phyCfg = ETH_PHY_DEFAULT_CONFIG();
-  phyCfg.reset_gpio_num = ETH_PIN_RST;
+  phyCfg.reset_gpio_num = sProfile->reset;
 
   sMac = esp_eth_mac_new_w5500(&w5500, &macCfg);
   esp_eth_phy_t *phy = esp_eth_phy_new_w5500(&phyCfg);
@@ -486,6 +566,7 @@ bool netBegin() {
 }
 
 // ---------------------------------------------------------------- accessors
+const char *netModuleName() { return sState.started && sProfile ? sProfile->name : "No LAN module"; }
 void netGetState(NetState &s) { LOCK(); s = sState; UNLOCK(); }
 void netGetCdp(Neighbor &n)   { LOCK(); n = sCdp;   UNLOCK(); }
 void netGetLldp(Neighbor &n)  { LOCK(); n = sLldp;  UNLOCK(); }

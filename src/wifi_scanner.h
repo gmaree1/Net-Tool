@@ -1,4 +1,5 @@
-// Scan-only 2.4 GHz survey. Never associates or creates an IP interface.
+// Passive 2.4 GHz survey lifecycle, access-point records, and display helpers.
+// Scanning does not associate with an access point or create an IP interface.
 #pragma once
 #include <Arduino.h>
 #include "esp_wifi_types.h"

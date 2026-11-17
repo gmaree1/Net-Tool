@@ -1,3 +1,5 @@
+// Passive 2.4 GHz Wi-Fi scan worker, sorted access-point results, and display
+// formatting for SSIDs, security, signal strength, channels, and PHY modes.
 #include "wifi_scanner.h"
 #include "esp_wifi.h"
 #include <atomic>

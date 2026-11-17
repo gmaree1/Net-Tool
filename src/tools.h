@@ -1,5 +1,5 @@
-// Troubleshooting tools. Each runs in its own task and writes to a shared console
-// that the UI renders.
+// Diagnostic tool identifiers, shared RGB565 UI colors, and the synchronized
+// console interface used by background tests and the touch display.
 #pragma once
 #include <Arduino.h>
 

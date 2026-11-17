@@ -1,4 +1,5 @@
-// Ethernet (W5500, raw MAC mode) + passive sniffer for CDP / LLDP / DHCP / 802.1Q
+// Ethernet module, link, addressing, neighbor, and DHCP state exposed to the UI
+// and diagnostic tools. Includes W5500 control and shared SPI bus coordination.
 #pragma once
 #include <Arduino.h>
 #include "esp_netif.h"
@@ -57,6 +58,7 @@ struct DhcpOffer {
 #define MAX_OFFERS 4
 
 bool        netBegin();                 // false if the W5500 was not found
+const char *netModuleName();            // selected pin profile, not a PoE power measurement
 void        netGetState(NetState &s);
 void        netGetCdp(Neighbor &n);
 void        netGetLldp(Neighbor &n);

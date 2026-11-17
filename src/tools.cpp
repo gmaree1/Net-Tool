@@ -1,3 +1,5 @@
+// Background Ethernet diagnostics: ping, ICMP traceroute, DNS / HTTP checks,
+// DHCP offer collection, and switch-port blinking through PHY link cycling.
 #include "tools.h"
 #include "net.h"
 #include <stdarg.h>
