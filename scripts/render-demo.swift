@@ -1,4 +1,5 @@
-// Demo renderings of the layout in src/main.cpp, with synthetic network data.
+// macOS AppKit renderer for eight synthetic Core2 UI previews in docs/images.
+// Draws maintained illustrations of src/main.cpp layouts at 3x LCD resolution.
 // macOS: swift scripts/render-demo.swift
 import AppKit
 
