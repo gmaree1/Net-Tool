@@ -43,14 +43,16 @@ The Core2 does **not** have a built-in RJ45 port. Wired functions need an extern
 
 ### Ethernet modules and pin profiles
 
-The default build is **`core2-lan-13_2`**, for the LAN Module 13.2. Match the physical module's jumper settings to the selected profile.
+The default build is **`core2-lan-auto`**. One firmware includes both pin mappings below and probes for a W5500 at startup. It selects the first responding mapping, shows its name on the startup screen, and logs the selected pins over serial. Detection works without a network cable or DHCP. Power off before changing modules, then reboot; live module swapping is not supported.
+
+The automatic build keeps the speaker disabled because GPIO0 must be available for the LAN 13.2 reset line. If no module responds, the interface and Wi-Fi scanner remain available. Detection identifies the supported wiring, not the module's PoE capability or power source. Nonstandard jumper settings require a matching fixed profile.
 
 | Module / profile | PlatformIO environment | CS | Reset | Interrupt | Notes |
 | --- | --- | ---: | ---: | ---: | --- |
-| LAN Module 13.2, expected factory jumper mapping | `core2-lan-13_2` | 33 | 0 | 35 | Default; speaker disabled because GPIO0 is used for W5500 reset |
-| Legacy LAN Base / LAN PoE Base pin configuration | `core2-lan-base` | 26 | 19 | 34 | Alternate electrical profile; check mechanical compatibility before use |
+| LAN Module 13.2, expected factory jumper mapping | `core2-lan-auto` or `core2-lan-13_2` | 33 | 0 | 35 | First mapping probed; speaker disabled |
+| Legacy LAN Base / LAN PoE Base pin configuration | `core2-lan-auto` or `core2-lan-base` | 26 | 19 | 34 | Second mapping probed; check mechanical compatibility before use |
 
-Shared SPI signals: **SCK 18 · MISO 38 · MOSI 23**. Pin definitions live in [platformio.ini](platformio.ini).
+Shared SPI signals: **SCK 18 · MISO 38 · MOSI 23**. Automatic pin mappings live in [src/net.cpp](src/net.cpp); fixed-profile overrides live in [platformio.ini](platformio.ini). GPIO numbers are for the Core2, whose M-Bus mapping differs from the original M5Stack Core.
 
 **Physical assembly matters:** M5Stack's Core2 documentation says its vibration motor interferes with Base-series bases and advises against stacking them directly. A firmware pin profile does not establish mechanical compatibility. The vendor also gives specific bottom/battery assembly guidance for stacking modules; follow the instructions for your exact hardware revision.
 
@@ -88,13 +90,17 @@ If PlatformIO is already installed in its standard virtual environment, use `~/.
 
 The project declares `espressif32@^6.9.0`, board `m5stack-core2`, the Arduino framework, and `M5Unified@^0.2.2`. These are compatible version ranges, rather than exact dependency locks. PlatformIO resolves the dependencies on the first build.
 
-### 3. Build the matching profile
+### 3. Build the firmware
 
 ```bash
-# Default: LAN Module 13.2
-pio run -e core2-lan-13_2
+# Default: automatically detect either supported module mapping
+pio run
 
-# Alternate legacy pin profile
+# Explicit automatic environment
+pio run -e core2-lan-auto
+
+# Optional fixed profiles
+pio run -e core2-lan-13_2
 pio run -e core2-lan-base
 ```
 
@@ -106,13 +112,13 @@ Connect the Core2 with a USB data cable:
 
 ```bash
 pio device list
-pio run -e core2-lan-13_2 -t upload
+pio run -e core2-lan-auto -t upload
 ```
 
 If multiple serial devices are present, select the actual port explicitly:
 
 ```bash
-pio run -e core2-lan-13_2 -t upload --upload-port /dev/cu.YOUR_DEVICE
+pio run -e core2-lan-auto -t upload --upload-port /dev/cu.YOUR_DEVICE
 pio device monitor --port /dev/cu.YOUR_DEVICE --baud 115200
 ```
 
@@ -130,7 +136,7 @@ Uploading replaces the firmware on the device. No separate filesystem upload is 
 4. Allow time for CDP/LLDP advertisements. The UI suggests 30–60 seconds; the actual interval depends on switch configuration. Discovery can work even if DHCP fails.
 5. Open **TOOLS** for a diagnostic, or the bottom-right **Extra tools** tile for Wi-Fi scanning.
 
-The three lower touch zones normally select Network, Switch, and Tools. Within an overlay, they follow the on-screen actions such as Back, Stop, Up, Down, Identity, or Radio. Audio feedback is disabled in the default LAN Module 13.2 profile; switch discovery still uses vibration.
+The three lower touch zones normally select Network, Switch, and Tools. Within an overlay, they follow the on-screen actions such as Back, Stop, Up, Down, Identity, or Radio. Audio feedback is disabled in the automatic and fixed LAN Module 13.2 profiles; switch discovery still uses vibration.
 
 ### Tools icon guide
 
@@ -176,7 +182,7 @@ Signal ratings are display heuristics: **Excellent ≥ −55 dBm**, **Good ≥ �
 
 | Symptom | Checks |
 | --- | --- |
-| **NO LAN MODULE** or W5500 reset timeout | Match the build profile to the actual module and jumpers; check seating and power. For the default module, GPIO0 must be available for reset and the speaker disabled. Reboot after correcting the hardware. |
+| **NO LAN MODULE** or W5500 reset timeout | The automatic build checks both supported mappings. Check seating, power, and jumper positions. GPIO0 must be available for LAN 13.2 reset, with the speaker disabled. Custom wiring requires a matching fixed profile. Reboot after correcting the hardware. |
 | `SPI bus already initialized` message | The display and W5500 share SPI. The firmware explicitly accepts `ESP_ERR_INVALID_STATE` and logs that sharing is expected. Check subsequent initialization messages before treating this message alone as failure. |
 | `WARN: no SPI guard device` | The firmware could not create its display/Ethernet SPI guard; inspect serial output and the installed hardware/dependency combination. |
 | Link but no IP | Check DHCP, switch port state, access VLAN, and NAC/802.1X restrictions. Try DHCP scan to see whether offers arrive. |
@@ -202,12 +208,16 @@ The Ethernet receive path inspects frames before passing relevant traffic to the
 
 ## Validation
 
-Both `core2-lan-13_2` and `core2-lan-base` compiled successfully on November 13, 2026. Compilation confirms that the source builds with the installed dependencies; hardware behavior, module assembly, and live network results still require testing on the actual unit. The images above are demos, not hardware validation evidence.
+`core2-lan-auto`, `core2-lan-13_2`, and `core2-lan-base` compiled successfully on November 17, 2026. Compilation confirms that the source builds with the installed dependencies; automatic detection, module assembly, and live network results still require testing on the actual unit. The images above are demos, not hardware validation evidence.
+
+For hardware validation, cold-boot once with each supported module, without an Ethernet cable, and check the selected profile in the startup screen and serial log. Then connect a cable and verify link, DHCP, and switch discovery. Also boot without a module and confirm that the Wi-Fi scanner still works.
 
 ## References and license
 
 - [M5Stack Core2 documentation and assembly notes](https://docs.m5stack.com/en/core/Core2)
 - [M5Stack LAN Module 13.2 documentation, schematic, and jumper information](https://docs.m5stack.com/en/module/Module13.2_LAN)
+- [M5Stack LAN PoE Base documentation and M-Bus wiring](https://docs.m5stack.com/en/base/Base_LAN_PoE)
+- [W5500 datasheet, including the VERSIONR chip identifier](https://docs.wiznet.io/assets/files/W5500_ds_v110e-226ffec190c588b69f88d629789585e1.pdf)
 - [PlatformIO Core installation](https://docs.platformio.org/en/latest/core/installation/index.html)
 - [M5Unified library](https://github.com/m5stack/M5Unified)
 
