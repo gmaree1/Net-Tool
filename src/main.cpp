@@ -4,6 +4,7 @@
 #include "net.h"
 #include "tools.h"
 #include "wifi_scanner.h"
+#include "power.h"
 
 // ---------------------------------------------------------------- layout
 static const int SCREEN_W = 320, SCREEN_H = 240;
@@ -12,7 +13,7 @@ static const int TAB_Y = 196, TAB_H = 44;    // bottom tab bar
 static const int BODY_Y = BAR_H + 2;
 
 enum Page { PAGE_NET, PAGE_SWITCH, PAGE_TOOLS };
-enum Overlay { OV_NONE, OV_CONSOLE, OV_QR, OV_EXTRA, OV_WIFI_LIST, OV_WIFI_DETAIL };
+enum Overlay { OV_NONE, OV_CONSOLE, OV_QR, OV_EXTRA, OV_WIFI_LIST, OV_WIFI_DETAIL, OV_AUTO_OFF };
 
 static M5Canvas canvas(&M5.Display);
 static lgfx::LovyanGFX *g = &M5.Display;     // draw target (off-screen canvas when available)
@@ -103,16 +104,24 @@ static void drawStatusBar() {
   uint16_t bg;
   String left;
   if (!lanOk) { bg = C_RED; left = "NO LAN MODULE"; }
-  else if (!st.link) { bg = C_RED; left = "NO LINK"; }
-  else {
+  else if (!st.link) {
+    bg = C_RED;
+    left = "NO LINK";
+    const char *hint = powerStatusHint();
+    if (hint && hint[0]) left = String("NO LINK · ") + hint;
+  } else {
     bg = st.hasIp ? C_GREEN : C_ORANGE;
-    left = String("LINK ") + st.speedMbps + "M " + (st.fullDuplex ? "FULL" : "HALF");
+    if (powerEco10M()) left = String("LINK 10M (Eco) ") + (st.fullDuplex ? "FULL" : "HALF");
+    else left = String("LINK ") + st.speedMbps + "M " + (st.fullDuplex ? "FULL" : "HALF");
     if (!st.hasIp) left += "  NO IP";
   }
   g->fillRect(0, 0, SCREEN_W, BAR_H, bg);
   g->fillCircle(14, BAR_H / 2, 6, rgb(0, 0, 0));
-  g->fillCircle(14, BAR_H / 2, 4, (st.link && (millis() / 500) % 2) ? C_TEXT : bg);
-  text(left, 28, BAR_H / 2, rgb(0, 0, 0), &fonts::FreeSansBold9pt7b, textdatum_t::middle_left);
+  // Blink slower while dimmed; stay solid while the PHY is in cable-sleep.
+  bool blinkOn = st.link && (millis() / powerRedrawIntervalMs()) % 2;
+  g->fillCircle(14, BAR_H / 2, 4, blinkOn ? C_TEXT : bg);
+  text(left, 28, BAR_H / 2, rgb(0, 0, 0), &fonts::FreeSansBold9pt7b,
+       textdatum_t::middle_left, SCREEN_W - 70);
   int batt = M5.Power.getBatteryLevel();
   if (batt >= 0) {
     String b = String(batt) + "%" + (M5.Power.isCharging() ? "+" : "");
@@ -411,19 +420,43 @@ static void wifiIcon(int cx, int cy, uint16_t color) {
 }
 
 static void drawExtraTools() {
-  text("EXTRA TOOLS", 12, 41, C_TEXT, &fonts::FreeSansBold12pt7b);
-  text("Wireless discovery & diagnostics", 12, 68, C_DIM, &fonts::Font2);
-  g->fillRoundRect(6, 94, 308, 78, 12, C_CARD);
-  g->drawRoundRect(6, 94, 308, 78, 12, rgb(43, 71, 99));
-  g->fillRoundRect(16, 108, 50, 50, 10, rgb(15, 58, 73));
-  wifiIcon(41, 146, C_CYAN);
-  text("Wi-Fi scanner", 80, 111, C_TEXT, &fonts::FreeSansBold12pt7b,
-       textdatum_t::top_left, 216);
-  text("SSIDs, signal & AP details", 80, 141, C_DIM, &fonts::Font2);
-  text(">", 298, 129, C_CYAN, &fonts::Font2, textdatum_t::middle_center);
-  text("2.4 GHz  /  No connection required", 160, 185, C_DIM, &fonts::Font0,
+  text("EXTRA TOOLS", 12, 38, C_TEXT, &fonts::FreeSansBold12pt7b);
+  g->fillRoundRect(6, 62, 308, 58, 10, C_CARD);
+  g->drawRoundRect(6, 62, 308, 58, 10, rgb(43, 71, 99));
+  g->fillRoundRect(16, 71, 40, 40, 8, rgb(15, 58, 73));
+  wifiIcon(36, 101, C_CYAN);
+  text("Wi-Fi scanner", 68, 72, C_TEXT, &fonts::FreeSansBold9pt7b,
+       textdatum_t::top_left, 220);
+  text("SSIDs, signal & AP details", 68, 96, C_DIM, &fonts::Font2);
+  text(">", 298, 91, C_CYAN, &fonts::Font2, textdatum_t::middle_center);
+
+  bool eco = powerEco10M();
+  g->fillRoundRect(6, 128, 308, 58, 10, C_CARD);
+  g->drawRoundRect(6, 128, 308, 58, 10, eco ? C_GREEN : rgb(43, 71, 99));
+  g->fillRoundRect(16, 137, 40, 40, 8, eco ? rgb(20, 70, 40) : rgb(40, 48, 64));
+  text("10", 36, 157, eco ? C_GREEN : C_DIM, &fonts::FreeSansBold9pt7b,
+       textdatum_t::middle_center);
+  text("Eco 10M", 68, 138, C_TEXT, &fonts::FreeSansBold9pt7b,
+       textdatum_t::top_left, 160);
+  text(eco ? "Forces 10 Mbit half while linked" : "Off — negotiate 10/100 as usual",
+       68, 162, C_DIM, &fonts::Font2, textdatum_t::top_left, 180);
+  g->fillRoundRect(236, 144, 64, 26, 6, eco ? C_GREEN : C_CARD);
+  g->drawRoundRect(236, 144, 64, 26, 6, eco ? C_GREEN : C_DIM);
+  text(eco ? "ON" : "OFF", 268, 157, eco ? rgb(0, 0, 0) : C_DIM, &fonts::Font2,
        textdatum_t::middle_center);
   bigButton(3, TAB_Y + 2, 314, TAB_H - 4, C_CYAN, false, "BACK TO TOOLS");
+}
+
+static void drawAutoOff() {
+  uint32_t sec = powerAutoOffSecondsLeft();
+  g->fillRoundRect(24, 60, 272, 120, 12, C_CARD);
+  g->drawRoundRect(24, 60, 272, 120, 12, C_ORANGE);
+  text("AUTO POWER-OFF", 160, 82, C_ORANGE, &fonts::FreeSansBold9pt7b,
+       textdatum_t::middle_center);
+  text(String(sec) + " s", 160, 118, C_TEXT, &fonts::FreeSansBold18pt7b,
+       textdatum_t::middle_center);
+  text("Touch anywhere to cancel", 160, 152, C_DIM, &fonts::Font2,
+       textdatum_t::middle_center);
 }
 
 static void drawWifiHeader() {
@@ -550,7 +583,8 @@ static void render() {
   g->fillScreen(C_BG);
   if (overlay == OV_WIFI_LIST || overlay == OV_WIFI_DETAIL) drawWifiHeader();
   else drawStatusBar();
-  if (overlay == OV_CONSOLE) drawConsole();
+  if (overlay == OV_AUTO_OFF) drawAutoOff();
+  else if (overlay == OV_CONSOLE) drawConsole();
   else if (overlay == OV_QR) drawQr();
   else if (overlay == OV_EXTRA) drawExtraTools();
   else if (overlay == OV_WIFI_LIST) drawWifiList();
@@ -618,6 +652,12 @@ static void bottomButton(int idx) {           // 0..2: the three zones under / a
 }
 
 static void handleTouch(int x, int y) {
+  if (overlay == OV_AUTO_OFF) {
+    // Any touch cancels auto-off; powerNoteActivity already ran in loop().
+    overlay = OV_NONE;
+    dirty = true;
+    return;
+  }
   if (y >= TAB_Y) {
     if (overlay == OV_CONSOLE) bottomButton(x < 156 ? 0 : x < 238 ? 1 : 2);
     else if (overlay == OV_WIFI_LIST || overlay == OV_WIFI_DETAIL) bottomButton(x < 107 ? 0 : x < 213 ? 1 : 2);
@@ -625,12 +665,16 @@ static void handleTouch(int x, int y) {
     return;
   }
   if (overlay == OV_EXTRA) {
-    if (x >= 6 && x < 314 && y >= 94 && y < 172) {
+    if (x >= 6 && x < 314 && y >= 62 && y < 120) {
       click();
       wifiListPage = 0;
       wifiSelected = -1;
       overlay = OV_WIFI_LIST;
       wifiScannerOpen();
+      dirty = true;
+    } else if (x >= 6 && x < 314 && y >= 128 && y < 186) {
+      click();
+      powerSetEco10M(!powerEco10M());
       dirty = true;
     }
     return;
@@ -682,6 +726,8 @@ static void handleTouch(int x, int y) {
 // ---------------------------------------------------------------- data polling
 static void poll() {
   static bool prevLink = false, prevNb = false, prevIp = false;
+  static bool prevEco = false;
+  static bool prevPhySleep = false;
   NetState ns;
   netGetState(ns);
   Neighbor n;
@@ -692,6 +738,8 @@ static void poll() {
 
   if (ns.link != prevLink) {
     beep(ns.link ? 1800 : 500, ns.link ? 80 : 200);
+    powerNoteEvent();                         // wake screen on link up/down
+    dirty = true;
     prevLink = ns.link;
   }
   if (have && !prevNb) {                      // switch identified: buzz + two-tone
@@ -699,10 +747,22 @@ static void poll() {
     beep(2800, 120, true);
     M5.Power.setVibration(160);
     vibrateOffAt = millis() + 200;
+    powerNoteEvent();
+    dirty = true;
   }
   prevNb = have;
-  if (ns.hasIp && !prevIp) beep(2400, 60);
+  if (ns.hasIp && !prevIp) {
+    beep(2400, 60);
+    powerNoteEvent();
+    dirty = true;
+  }
   prevIp = ns.hasIp;
+
+  if (powerEco10M() != prevEco || powerPhySleeping() != prevPhySleep) {
+    prevEco = powerEco10M();
+    prevPhySleep = powerPhySleeping();
+    dirty = true;
+  }
 
   st = ns; nb = n; nbProto = proto; haveNb = have; dhcp = d;
 }
@@ -734,7 +794,7 @@ void setup() {
   Serial.begin(115200);
   Serial.printf("board=%d default_rot=%d w=%d h=%d\n", (int)M5.getBoard(), (int)M5.Display.getRotation(),
                 (int)M5.Display.width(), (int)M5.Display.height());
-  M5.Display.setBrightness(180);
+  powerBegin();                               // 80 MHz CPU, dimmer backlight, Eco preference
 #ifndef NO_SOUND
   M5.Speaker.setVolume(110);
 #endif
@@ -746,6 +806,7 @@ void setup() {
     splash("W5500 LAN module not detected");
     delay(1500);
   } else {
+    powerApplyNet();                          // Eco 10M preference → PHYCFGR
     splash(netModuleName());
     delay(800);
   }
@@ -758,14 +819,19 @@ void setup() {
 
 void loop() {
   static uint32_t lastPoll = 0, lastDraw = 0;
+  static bool prevAutoOff = false;
   M5.update();
   if (wifiScannerUpdate()) dirty = true;
 
   auto t = M5.Touch.getDetail();
-  if (t.wasPressed() && t.y < SCREEN_H) handleTouch(t.x, t.y);
-  if (M5.BtnA.wasPressed()) bottomButton(0);  // touch zones printed below the screen
-  if (M5.BtnB.wasPressed()) bottomButton(1);
-  if (M5.BtnC.wasPressed()) bottomButton(2);
+  if (t.wasPressed() && t.y < SCREEN_H) {
+    powerNoteActivity();                      // wake backlight + immediate cable probe
+    dirty = true;                             // restore a frame after DARK (no render)
+    handleTouch(t.x, t.y);
+  }
+  if (M5.BtnA.wasPressed()) { powerNoteActivity(); dirty = true; bottomButton(0); }
+  if (M5.BtnB.wasPressed()) { powerNoteActivity(); dirty = true; bottomButton(1); }
+  if (M5.BtnC.wasPressed()) { powerNoteActivity(); dirty = true; bottomButton(2); }
 
   uint32_t now = millis();
   if (vibrateOffAt && now >= vibrateOffAt) {
@@ -775,13 +841,25 @@ void loop() {
   if (now - lastPoll >= 250) {
     lastPoll = now;
     poll();
+    powerTick(lanOk);
+    bool autoOff = powerAutoOffPending();
+    if (autoOff != prevAutoOff) {
+      prevAutoOff = autoOff;
+      if (autoOff) overlay = OV_AUTO_OFF;
+      else if (overlay == OV_AUTO_OFF) overlay = OV_NONE;
+      dirty = true;
+    } else if (autoOff) {
+      dirty = true;                           // countdown digits
+    }
     if (conVersion() != lastConVersion) {
       lastConVersion = conVersion();
       dirty = true;
     }
   }
-  // Redraw on change, and twice a second for the timers / blinking link dot
-  if ((dirty && now - lastDraw >= 60) || now - lastDraw >= 500) {
+  // Redraw on change; heartbeat while visible; skip entirely while backlight is off.
+  uint32_t redrawMs = powerRedrawIntervalMs();
+  if (powerShouldRender() &&
+      ((dirty && now - lastDraw >= 60) || now - lastDraw >= redrawMs)) {
     lastDraw = now;
     dirty = false;
     render();

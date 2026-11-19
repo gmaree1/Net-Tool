@@ -28,6 +28,8 @@ static DhcpOffer sOffers[MAX_OFFERS];
 static int       sOfferCount = 0;
 static volatile bool sHold = false;
 static spi_device_handle_t sBusGuard = nullptr;
+static bool sEco10 = false;
+static bool sPhyPowered = true;
 
 struct LanProfile {
   const char *name;
@@ -40,6 +42,8 @@ struct LanProfile {
 #endif
 static const LanProfile sProfiles[] = {
   {"LAN Module 13.2", 33, 0, 35},
+  // Older LAN PoE Base and Base LAN PoE v1.2 share this Core2 M-Bus mapping
+  // (vendor "G13" RST figures are M5Stack-Basic numbering, not Core2 GPIOs).
   {"LAN / PoE Base", 26, 19, 34},
 };
 #else
@@ -595,17 +599,53 @@ void netRenewDhcp() {
 }
 
 // W5500 PHYCFGR: bit7 = !reset, bit6 = software-configured mode, bits5..3 = mode
-// (110 = power down, 111 = auto-negotiate everything). A mode change is latched by
-// pulsing the reset bit low.
-void netPhyPower(bool on) {
+// (000 = 10 half no AN, 110 = power down, 111 = all capable + AN). A mode change
+// is latched by pulsing the reset bit low. See W5500 datasheet §PHYCFGR.
+static void writePhycfgr(uint8_t opmdc) {
   if (!sMac) return;
   const uint32_t reg = 0x002E0000;        // driver's address encoding for PHYCFGR
-  uint32_t mode = 0x40 | ((on ? 0x7 : 0x6) << 3);
+  uint32_t mode = 0x40 | ((uint32_t)(opmdc & 0x7) << 3);
   sMac->write_phy_reg(sMac, 0, reg, mode | 0x80);
   sMac->write_phy_reg(sMac, 0, reg, mode);
   delay(2);
   sMac->write_phy_reg(sMac, 0, reg, mode | 0x80);
 }
+
+static uint8_t readPhycfgr() {
+  if (!sMac) return 0;
+  const uint32_t reg = 0x002E0000;
+  uint32_t val = 0;
+  sMac->read_phy_reg(sMac, 0, reg, &val);
+  return (uint8_t)(val & 0xff);
+}
+
+static uint8_t phyModeBits() {
+  // Eco 10M uses 10BASE-T half without auto-negotiation. Switches that
+  // auto-negotiate fall back to parallel detection and settle on 10/half, so
+  // duplex matches. Forcing 10 full would risk a duplex mismatch.
+  return sEco10 ? 0x0 : 0x7;
+}
+
+void netPhyPower(bool on) {
+  if (!sMac) return;
+  writePhycfgr(on ? phyModeBits() : 0x6);
+  sPhyPowered = on;
+}
+
+bool netPhyIsPowered() { return sPhyPowered; }
+
+bool netLinkRaw() {
+  // Bit 0 = LNK (RO). Valid only when the PHY is not in power-down.
+  if (!sMac || !sPhyPowered) return false;
+  return (readPhycfgr() & 0x01) != 0;
+}
+
+void netSetEco10M(bool on) {
+  sEco10 = on;
+  if (sMac && sPhyPowered) writePhycfgr(phyModeBits());
+}
+
+bool netEco10M() { return sEco10; }
 
 bool netBestNeighbor(Neighbor &out, const char *&proto) {
   Neighbor c, l;
