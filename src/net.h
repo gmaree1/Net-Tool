@@ -67,6 +67,10 @@ int         netGetOffers(DhcpOffer *out);   // returns count (<= MAX_OFFERS)
 void        netClearOffers();
 void        netRenewDhcp();             // restart the DHCP client (sends a fresh DISCOVER)
 void        netPhyPower(bool on);       // drop / restore the link (blinks the switch port LED)
+bool        netPhyIsPowered();          // false while PHYCFGR is in power-down
+bool        netLinkRaw();               // PHYCFGR.LNK, independent of the driver cache
+void        netSetEco10M(bool on);      // force 10BASE-T half (PHYCFGR 000) vs full auto-neg
+bool        netEco10M();
 void        netHoldInfo(bool hold);     // keep discovered info across link flaps
 esp_netif_t *netIf();
 void        netBusLock();               // wrap every display SPI access in Lock/Unlock

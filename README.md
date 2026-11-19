@@ -4,7 +4,7 @@ A pocket network diagnostic tool for identifying switch ports, checking DHCP and
 
 Built for the **M5Stack Core2** with a **W5500 Ethernet module**, using a touch interface, large status cards, and an icon-based tools menu. Firmware starts automatically when the device powers on. The Wi-Fi scanner also works without an Ethernet module or cable.
 
-[Hardware](#hardware) · [Build and flash](#build-and-flash) · [Demo screens](#demo-screens) · [Using-net-tool](#using-net-tool) · [Troubleshooting](#troubleshooting) · [Limitations](#limitations)
+[Hardware](#hardware) · [Build and flash](#build-and-flash) · [Demo screens](#demo-screens) · [Using-net-tool](#using-net-tool) · [Battery and power saving](#battery-and-power-saving) · [Troubleshooting](#troubleshooting) · [Limitations](#limitations)
 
 ## Demo screens
 
@@ -32,6 +32,7 @@ The demo images can be regenerated on macOS with `swift scripts/render-demo.swif
 - **Port identification:** blink the connected switch port by cycling the Ethernet link.
 - **QR handoff:** display discovered port and network information as text in a QR code for a phone camera.
 - **Wi-Fi survey:** passive 2.4 GHz scanning, strongest-first AP list, and separate identity/radio detail pages.
+- **Battery power saving:** W5500 PHY cable-sleep when unplugged, 80 MHz CPU, idle backlight dim/off, optional Eco 10M link mode, and idle auto power-off (see [Battery and power saving](#battery-and-power-saving)).
 
 ## Hardware
 
@@ -50,7 +51,7 @@ The automatic build keeps the speaker disabled because GPIO0 must be available f
 | Module / profile | PlatformIO environment | CS | Reset | Interrupt | Notes |
 | --- | --- | ---: | ---: | ---: | --- |
 | LAN Module 13.2, expected factory jumper mapping | `core2-lan-auto` or `core2-lan-13_2` | 33 | 0 | 35 | First mapping probed; speaker disabled |
-| Legacy LAN Base / LAN PoE Base pin configuration | `core2-lan-auto` or `core2-lan-base` | 26 | 19 | 34 | Second mapping probed; check mechanical compatibility before use |
+| Legacy LAN Base / LAN PoE Base, and Base LAN PoE v1.2 on Core2 | `core2-lan-auto` or `core2-lan-base` | 26 | 19 | 34 | Second mapping probed; check mechanical compatibility before use. Vendor “G13” RST figures are M5Stack-Basic numbering, not Core2 GPIOs. |
 
 Shared SPI signals: **SCK 18 · MISO 38 · MOSI 23**. Automatic pin mappings live in [src/net.cpp](src/net.cpp); fixed-profile overrides live in [platformio.ini](platformio.ini). GPIO numbers are for the Core2, whose M-Bus mapping differs from the original M5Stack Core.
 
@@ -168,6 +169,40 @@ Use **PREV / NEXT** to browse and **RESCAN** for a fresh snapshot. The displayed
 
 Signal ratings are display heuristics: **Excellent ≥ −55 dBm**, **Good ≥ −67 dBm**, **Fair ≥ −75 dBm**, otherwise **Weak**. They are not throughput measurements.
 
+## Battery and power saving
+
+Target hardware for these policies is a **Core2 v1.1 (AXP2101) with a 500 mAh battery**, stacked with any of the supported W5500 modules above. There are **no hardware changes** in this firmware revision: the W5500 PHY is put into its datasheet power-down mode when unused; the module’s 5 V rail stays on.
+
+### Behaviour
+
+| Policy | Detail |
+| --- | --- |
+| Cable sleep | After about **15 s** with no link, the W5500 PHY is powered down. Every **30 s** it wakes briefly (up to ~3 s) to look for a cable. A screen touch or button checks immediately. The PHY is **never** slept while a link is up, so PoE (which always has a cable) is unaffected. |
+| CPU clock | Runs at **80 MHz**. The Wi-Fi scanner temporarily raises the clock while it is open. |
+| Backlight | Default brightness is lower than before. After ~30 s idle it dims; after ~2 min it turns off and the UI stops redrawing. Touch, buttons, or events (link change, IP, new neighbour, tool finished) restore it. |
+| Eco 10M | Manual switch under **Tools → Extra tools**, **off by default**. When on, the PHY is forced to **10BASE-T half** (saves power while linked). The status bar shows `10M (Eco)`. Preference is stored in NVS across reboots. |
+| Auto power-off | After **10 min** idle with no cable and not charging, a 20 s on-screen countdown runs, then `M5.Power.powerOff()`. Touch cancels. |
+| Tools | Blink port, DHCP scan, and the other wire diagnostics wake the PHY first and hold it awake while they run. |
+
+All of the timings and brightness/CPU levels are named constants at the top of [src/power.cpp](src/power.cpp) so they are easy to retune on the bench.
+
+### Estimated battery current (not measured)
+
+Figures are **datasheet-based estimates** at the battery (~3.7 V), including the Core2 5 V boost and module LDO chain for the W5500. They are **not** lab measurements. Confirm on hardware with the bench plan in the PR that introduced this feature.
+
+| Scenario | Before (approx.) | After Option A (approx.) |
+| --- | --- | --- |
+| No cable, screen on | ~200 mA | ~90 mA dimmed / ~82 mA backlight off |
+| Linked 100 Mbit, dimmed | ~300 mA | ~245–265 mA |
+| Linked, Eco 10M on, dimmed | — | ~160–180 mA |
+| Auto power-off | drains until empty | ~0 while off |
+
+On a 500 mAh pack (≈0.85 usable), that is roughly **~2.1 h → ~4.7 h** with no cable, and about **~2.7 h** linked with Eco 10M.
+
+### USB power meter note
+
+A USB inline meter on the Core2’s USB-C port measures charger/USB input, **not** battery discharge. Use it for relative checks (no cable vs Eco 10M vs idle) while the unit is USB-powered, or for a “powered on, fully charged” sanity check. For true battery drain, use the AXP battery current reading over serial or a meter in series with the battery lead.
+
 ## Limitations
 
 - **2.4 GHz only:** 5 GHz and 6 GHz APs are not visible. A passive survey does not guarantee detection of every nearby radio or recover hidden SSID names.
@@ -198,6 +233,7 @@ Useful serial output includes the detected board, display dimensions, W5500 pin 
 | --- | --- |
 | [platformio.ini](platformio.ini) | Build environments, dependencies, pin assignments, and serial settings |
 | [src/main.cpp](src/main.cpp) | Touch UI, navigation, status pages, QR display, and feedback |
+| [src/power.cpp](src/power.cpp), [src/power.h](src/power.h) | Battery power policy: cable-sleep, backlight, CPU clock, Eco 10M, auto power-off |
 | [src/net.cpp](src/net.cpp), [src/net.h](src/net.h) | W5500 raw-MAC driver integration, shared SPI access, CDP/LLDP/DHCP parsing, and VLAN observations |
 | [src/tools.cpp](src/tools.cpp), [src/tools.h](src/tools.h) | Diagnostic worker tasks and scrollable console |
 | [src/wifi_scanner.cpp](src/wifi_scanner.cpp), [src/wifi_scanner.h](src/wifi_scanner.h) | Passive Wi-Fi scanning, result lifecycle, and AP metadata helpers |
@@ -217,6 +253,7 @@ For hardware validation, cold-boot once with each supported module, without an E
 - [M5Stack Core2 documentation and assembly notes](https://docs.m5stack.com/en/core/Core2)
 - [M5Stack LAN Module 13.2 documentation, schematic, and jumper information](https://docs.m5stack.com/en/module/Module13.2_LAN)
 - [M5Stack LAN PoE Base documentation and M-Bus wiring](https://docs.m5stack.com/en/base/Base_LAN_PoE)
+- [M5Stack Base LAN PoE v1.2](https://docs.m5stack.com/en/base/Base_LAN_PoE_v1.2)
 - [W5500 datasheet, including the VERSIONR chip identifier](https://docs.wiznet.io/assets/files/W5500_ds_v110e-226ffec190c588b69f88d629789585e1.pdf)
 - [PlatformIO Core installation](https://docs.platformio.org/en/latest/core/installation/index.html)
 - [M5Unified library](https://github.com/m5stack/M5Unified)

@@ -1,6 +1,7 @@
 // Passive 2.4 GHz Wi-Fi scan worker, sorted access-point results, and display
 // formatting for SSIDs, security, signal strength, channels, and PHY modes.
 #include "wifi_scanner.h"
+#include "power.h"
 #include "esp_wifi.h"
 #include <atomic>
 #include <stdlib.h>
@@ -62,6 +63,7 @@ static void releaseSurvey() {
     sRadioOn = false;
   }
   sState = WIFI_SURVEY_OFF;
+  powerWifiBoost(false);                          // restore the 80 MHz battery clock
 }
 
 bool wifiScannerUpdate() {
@@ -116,6 +118,7 @@ void wifiScannerRefresh() {
 
 void wifiScannerOpen() {
   sActive = true;
+  powerWifiBoost(true);                           // Wi-Fi scan is happier above 80 MHz
   if (!sWaiting) wifiScannerRefresh();
 }
 

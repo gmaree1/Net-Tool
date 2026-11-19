@@ -2,6 +2,7 @@
 // DHCP offer collection, and switch-port blinking through PHY link cycling.
 #include "tools.h"
 #include "net.h"
+#include "power.h"
 #include <stdarg.h>
 #include <errno.h>
 #include "lwip/sockets.h"
@@ -69,7 +70,12 @@ static bool waitMs(uint32_t ms) {
 }
 
 static bool needIp(NetState &st) {
-  netGetState(st);
+  // Cable-sleep may have just been woken by toolStart; give the PHY a moment.
+  for (int i = 0; i < 60; i++) {
+    netGetState(st);
+    if (st.link) break;
+    if (!waitMs(50)) return false;
+  }
   if (!st.link) { conPrint(C_RED, "No link - plug in a cable"); return false; }
   if (!st.hasIp) { conPrint(C_RED, "No IP address yet (DHCP pending)"); return false; }
   return true;
@@ -300,14 +306,27 @@ static void doDnsWeb() {
 
 // ---------------------------------------------------------------- DHCP scan
 static void doDhcpScan() {
+  powerHoldAwake(true);                           // wake PHY before looking for a link
   NetState st;
   netGetState(st);
-  if (!st.link) { conPrint(C_RED, "No link - plug in a cable"); return; }
+  if (!st.link) {
+    conPrint(C_YELLOW, "Waiting for link…");
+    for (int i = 0; i < 60 && !sAbort; i++) {     // up to ~3 s after a cable-sleep wake
+      if (!waitMs(50)) { powerHoldAwake(false); return; }
+      netGetState(st);
+      if (st.link) break;
+    }
+  }
+  if (!st.link) {
+    conPrint(C_RED, "No link - plug in a cable");
+    powerHoldAwake(false);
+    return;
+  }
   conPrint(C_CYAN, "Sending DHCP DISCOVER...");
   netClearOffers();
   netRenewDhcp();
   for (int i = 0; i < 12; i++) {                  // collect offers for ~6 s
-    if (!waitMs(500)) return;
+    if (!waitMs(500)) { powerHoldAwake(false); return; }
   }
   DhcpOffer offers[MAX_OFFERS];
   int n = netGetOffers(offers);
@@ -331,10 +350,12 @@ static void doDhcpScan() {
     if (d.tftp[0]) conPrint(C_TEXT, "TFTP %s", d.tftp);
     if (!ipIsZero(d.ntp)) conPrint(C_TEXT, "NTP %s", ipToStr(d.ntp).c_str());
   }
+  powerHoldAwake(false);
 }
 
 // ---------------------------------------------------------------- blink the switch port LED
 static void doBlink() {
+  powerHoldAwake(true);                           // keep cable-sleep from fighting the flaps
   conPrint(C_CYAN, "Flapping link - watch the switch");
   conPrint(C_DIM, "Port LED goes off/on 6 times");
   netHoldInfo(true);                              // keep CDP/LLDP data across the flaps
@@ -354,6 +375,7 @@ static void doBlink() {
     delay(50);
   }
   netHoldInfo(false);
+  powerHoldAwake(false);
   conPrint(C_TEXT, "Done - link %s", st.link ? "restored" : "still down");
 }
 
@@ -377,6 +399,8 @@ static void toolTask(void *arg) {
     default: break;
   }
   if (sAbort) conPrint(C_YELLOW, "Stopped");
+  powerHoldAwake(false);                          // safety net if a tool returned early
+  powerNoteEvent();                               // wake the screen for the finished result
   sBusy = false;
   vTaskDelete(NULL);
 }
@@ -389,7 +413,12 @@ void toolStart(ToolId id) {
   conReset(titles[id]);
   sAbort = false;
   sBusy = true;
-  if (xTaskCreate(toolTask, "tool", 8192, (void *)(intptr_t)id, 2, NULL) != pdPASS) sBusy = false;
+  // Any diagnostic that needs the wire must leave cable-sleep first.
+  powerHoldAwake(true);
+  if (xTaskCreate(toolTask, "tool", 8192, (void *)(intptr_t)id, 2, NULL) != pdPASS) {
+    powerHoldAwake(false);
+    sBusy = false;
+  }
 }
 
 void toolsBegin() {
